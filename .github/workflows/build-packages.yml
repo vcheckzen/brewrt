@@ -48,18 +48,20 @@ jobs:
       EXTRA_FEEDS: ${{ inputs.extra_feeds }}
       NSS_PACKAGES_SHA: ${{ inputs.nss_packages_sha }}
     steps:
-      - name: Checkout this repo
-        uses: actions/checkout@v4
-
-      - name: Install build dependencies
-        run: bash scripts/install-deps.sh
-
+      # NOTE: maximize-build-space must run BEFORE checkout: it recreates the
+      # workspace and wipes any files already checked out into it.
       - name: Maximize build space
         uses: easimon/maximize-build-space@master
         with:
           swap-size-mb: 4096
           root-reserve-mb: 1024
           temp-reserve-mb: 100
+
+      - name: Checkout this repo
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: bash scripts/install-deps.sh
 
       - name: Clone LiBwrt source pinned to firmware commit
         run: |
@@ -80,6 +82,8 @@ jobs:
       - name: Apply config and pinned feeds
         run: |
           set -e
+          echo "workspace: $PWD"
+          test -f "configs/$CONFIG_FILE" || { echo "ERROR: configs/$CONFIG_FILE missing"; ls -la; ls -la configs 2>/dev/null || true; exit 1; }
           cp "configs/$CONFIG_FILE" "$OPENWRT_PATH/.config"
           cp feeds/pinned-6.12.conf "$OPENWRT_PATH/feeds.conf"
           if [ -n "$NSS_PACKAGES_SHA" ]; then
