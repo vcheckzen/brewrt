@@ -3,6 +3,10 @@
 # GitHub hosted runners ship with a nearly-full root filesystem, so we free up
 # preinstalled junk FIRST (the original openwrt-ci workflow did the same),
 # then install what the build actually needs.
+#
+# NOTE: do NOT delete /etc/apt/sources.list.d here. On ubuntu-24.04 all apt
+# sources live there (deb822 format, e.g. ubuntu.sources); deleting the dir
+# removes the Ubuntu repos entirely ("no installation candidate" errors).
 set -e
 export DEBIAN_FRONTEND=noninteractive
 
@@ -11,7 +15,7 @@ df -h / | tail -n1
 
 # Free space on the root filesystem (where /usr lives)
 docker rmi $(docker images -q) >/dev/null 2>&1 || true
-sudo rm -rf /usr/share/dotnet /etc/apt/sources.list.d /usr/local/lib/android \
+sudo rm -rf /usr/share/dotnet /usr/local/lib/android \
   /opt/ghc /usr/local/share/powershell "$AGENT_TOOLSDIRECTORY" >/dev/null 2>&1 || true
 sudo apt-get -qq purge -y azure-cli 'ghc*' 'zulu*' 'llvm*' firefox 'google-chrome*' \
   'dotnet*' powershell 'openjdk*' 'mongodb*' 'moby*' 'containerd*' >/dev/null 2>&1 || true
