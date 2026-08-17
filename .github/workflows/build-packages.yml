@@ -1,0 +1,158 @@
+name: Build LiBwrt packages for IPQ60XX (pinned 2025-01-25)
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: LiBwrt source commit. Default = the exact commit your firmware was built from (9fd688c).
+        required: true
+        default: 9fd688ca337da15c6615bde9704b07f56d16c276
+      config_flavor:
+        description: Original firmware config (WIFI or NOWIFI). See README on how to check.
+        required: true
+        default: wifi
+        type: choice
+        options:
+          - wifi
+          - nowifi
+      packages:
+        description: Space-separated package names to compile (e.g. openssl-util luci-app-passwall). Leave empty to build the FULL firmware.
+        required: false
+        default: openssl-util
+      extra_feeds:
+        description: Optional extra src-git feed lines appended to feeds.conf (one per line).
+        required: false
+        default: ''
+      nss_packages_sha:
+        description: Optional commit for the LiBwrt/nss-packages feed (its Jan-2025 history was rewritten, see README). Leave empty to skip it.
+        required: false
+        default: ''
+
+env:
+  SOURCE_URL: https://github.com/LiBwrt/LibWrt.git
+
+concurrency:
+  group: build-libwrt-ipq60xx
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build packages/firmware for LiBwrt IPQ60XX
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    env:
+      SOURCE_SHA: ${{ inputs.source_sha }}
+      CONFIG_FLAVOR: ${{ inputs.config_flavor }}
+      CONFIG_FILE: ipq60xx-6.12-${{ inputs.config_flavor }}.config
+      PACKAGES: ${{ inputs.packages }}
+      EXTRA_FEEDS: ${{ inputs.extra_feeds }}
+      NSS_PACKAGES_SHA: ${{ inputs.nss_packages_sha }}
+    steps:
+      - name: Install build dependencies
+        run: bash scripts/install-deps.sh
+
+      - name: Maximize build space
+        uses: easimon/maximize-build-space@master
+        with:
+          swap-size-mb: 4096
+          root-reserve-mb: 1024
+          temp-reserve-mb: 100
+
+      - name: Checkout this repo
+        uses: actions/checkout@v4
+
+      - name: Clone LiBwrt source pinned to firmware commit
+        run: |
+          set -e
+          git init -q openwrt
+          cd openwrt
+          git remote add origin "$SOURCE_URL"
+          if git fetch -q --depth 1 origin "$SOURCE_SHA"; then
+            git checkout -q FETCH_HEAD
+          else
+            echo "shallow-by-sha failed, fetching default branch and checking out pinned sha"
+            git fetch -q --shallow-since=2025-01-20 origin main-nss
+            git checkout -q "$SOURCE_SHA"
+          fi
+          echo "OPENWRT_PATH=$PWD" >> "$GITHUB_ENV"
+          git log -1 --format='pinned commit: %H%ndate: %cs%nmessage: %s'
+
+      - name: Apply config and pinned feeds
+        run: |
+          set -e
+          cp "configs/$CONFIG_FILE" "$OPENWRT_PATH/.config"
+          cp feeds/pinned-6.12.conf "$OPENWRT_PATH/feeds.conf"
+          if [ -n "$NSS_PACKAGES_SHA" ]; then
+            echo "src-git nss_packages https://github.com/LiBwrt/nss-packages.git^$NSS_PACKAGES_SHA" >> "$OPENWRT_PATH/feeds.conf"
+          fi
+          if [ -n "$EXTRA_FEEDS" ]; then
+            printf '%s\n' "$EXTRA_FEEDS" >> "$OPENWRT_PATH/feeds.conf"
+          fi
+          cd "$OPENWRT_PATH"
+          make defconfig
+
+      - name: Update and install feeds
+        run: |
+          set -e
+          cd "$OPENWRT_PATH"
+          ./scripts/feeds update -a
+          # Extra packages the original firmware workflow added (pinned to 2025-01-25)
+          bash "$GITHUB_WORKSPACE/scripts/install-custom-pkgs.sh"
+          ./scripts/feeds install -a
+
+      - name: Reload config and download sources
+        run: |
+          set -e
+          cd "$OPENWRT_PATH"
+          cp "$GITHUB_WORKSPACE/configs/$CONFIG_FILE" .config
+          make defconfig
+          make download -j8 || make download -j1 V=s
+          find dl -size -1024c -delete 2>/dev/null || true
+
+      - name: Cache toolchain
+        uses: HiGarfield/cachewrtbuild@main
+        with:
+          ccache: "false"
+          mixkey: libwrt-${{ inputs.source_sha }}-${{ inputs.config_flavor }}-aarch64_cortex-a53
+          prefix: ${{ env.OPENWRT_PATH }}
+
+      - name: Compile
+        id: compile
+        run: |
+          set -e
+          cd "$OPENWRT_PATH"
+          echo "CPU cores: $(nproc)"
+          if [ -z "$PACKAGES" ]; then
+            echo "==> building full firmware"
+            make -j$(nproc) V=s || make -j1 V=s
+          else
+            targets=""
+            for p in $PACKAGES; do
+              p="${p#package/}"
+              p="${p%/compile}"
+              targets="$targets package/$p/compile"
+            done
+            echo "==> targets: $targets"
+            make -j$(nproc) $targets V=s || make -j1 $targets V=s
+          fi
+          echo "status=success" >> "$GITHUB_OUTPUT"
+
+      - name: Collect artifacts
+        if: steps.compile.outputs.status == 'success'
+        run: bash "$GITHUB_WORKSPACE/scripts/collect-artifacts.sh"
+
+      - name: Upload packages
+        if: steps.compile.outputs.status == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk-${{ inputs.config_flavor }}
+          path: artifacts-apk/**
+          if-no-files-found: warn
+
+      - name: Upload firmware
+        if: steps.compile.outputs.status == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-${{ inputs.config_flavor }}
+          path: artifacts-firmware/**
+          if-no-files-found: warn
