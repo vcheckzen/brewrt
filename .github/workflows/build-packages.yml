@@ -16,7 +16,7 @@ on:
           - wifi
           - nowifi
       packages:
-        description: Space-separated package names to compile (e.g. openssl-util luci-app-passwall). Leave empty to build the FULL firmware.
+        description: 'Space-separated packages to compile: bare names (openssl-util, luci-app-passwall) or source paths (package/libs/openssl, package/feeds/packages/aria2). Leave empty to build the FULL firmware.'
         required: false
         default: openssl-util
       extra_feeds:
@@ -136,20 +136,12 @@ jobs:
         id: compile
         run: |
           set -e
-          cd "$OPENWRT_PATH"
-          echo "CPU cores: $(nproc)"
           if [ -z "$PACKAGES" ]; then
             echo "==> building full firmware"
+            cd "$OPENWRT_PATH"
             make -j$(nproc) V=s || make -j1 V=s
           else
-            targets=""
-            for p in $PACKAGES; do
-              p="${p#package/}"
-              p="${p%/compile}"
-              targets="$targets package/$p/compile"
-            done
-            echo "==> targets: $targets"
-            make -j$(nproc) $targets V=s || make -j1 $targets V=s
+            bash "$GITHUB_WORKSPACE/scripts/build-packages.sh"
           fi
           echo "status=success" >> "$GITHUB_OUTPUT"
 

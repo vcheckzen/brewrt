@@ -27,8 +27,7 @@
 3. 按需填输入项：
    - `source_sha`：源码 commit，默认就是你固件的 `9fd688c...`，一般不用改。
    - `config_flavor`：`wifi` 或 `nowifi`（不清楚就看下面「判断 WIFI/NOWIFI」）。
-   - `packages`：要编译的包名，空格分隔，例如 `openssl-util`、`luci-app-passwall luci-app-argon-config`。
-     **留空 = 编译整机固件**（耗时最长）。
+   - `packages`：要编译的软件包，空格分隔。支持包名（`openssl-util`、`luci-app-passwall`），也支持源码路径（`package/libs/openssl`、`package/feeds/packages/aria2`）；包名会自动解析到对应源码目录。**留空 = 编译整机固件**。
    - `extra_feeds`：可选，向 `feeds.conf` 追加自定义 feed，每行一条 `src-git xxx https://...`。
    - `nss_packages_sha`：可选，见「注意事项」。
 4. 完成后在本次运行的 **Artifacts** 里下载 `apk-wifi` / `apk-nowifi`（编译出的所有 `.apk`）
