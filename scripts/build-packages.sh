@@ -8,12 +8,12 @@ cd "$OPENWRT_PATH"
 
 resolve_dir() {
   local n="$1" cand
-  # path form: package/libs/openssl, libs/openssl, package/feed/x/y/compile ...
+  # path form: package/libs/openssl, libs/openssl, package/feeds/x/y, .../compile
   case "$n" in
     */*)
       n="${n#package/}"
       n="${n%/compile}"
-      if [ -d "$n" ]; then
+      if [ -d "package/$n" ]; then
         echo "$n"
         return 0
       fi
@@ -27,13 +27,16 @@ resolve_dir() {
       *feeds/base*) continue ;;
     esac
     if [ "$(basename "$cand")" = "$n" ]; then
-      echo "$cand"; return 0
+      echo "${cand#package/}"
+      return 0
     fi
     if grep -qE "^PKG_NAME[: ]?=[[:space:]]*${n}([[:space:]]|$)" "$cand/Makefile"; then
-      echo "$cand"; return 0
+      echo "${cand#package/}"
+      return 0
     fi
     if grep -qE "BuildPackage,${n}[,)]" "$cand/Makefile"; then
-      echo "$cand"; return 0
+      echo "${cand#package/}"
+      return 0
     fi
   done
   return 1
@@ -42,7 +45,12 @@ resolve_dir() {
 targets=""
 missing=""
 for p in $PACKAGES; do
-  d="$(resolve_dir "$p")" || { missing="$missing $p"; continue; }
+  d="$(resolve_dir "$p")"
+  if [ -z "$d" ]; then
+    missing="$missing $p"
+    continue
+  fi
+  echo "==> $p -> package/$d"
   targets="$targets package/$d/compile"
 done
 
