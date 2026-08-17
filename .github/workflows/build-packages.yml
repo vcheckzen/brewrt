@@ -48,8 +48,8 @@ jobs:
       EXTRA_FEEDS: ${{ inputs.extra_feeds }}
       NSS_PACKAGES_SHA: ${{ inputs.nss_packages_sha }}
     steps:
-      # NOTE: maximize-build-space must run BEFORE checkout: it recreates the
-      # workspace and wipes any files already checked out into it.
+      # maximize-build-space recreates the workspace, so it MUST run before
+      # checkout or it wipes the files checkout just wrote.
       - name: Maximize build space
         uses: easimon/maximize-build-space@master
         with:
@@ -62,6 +62,17 @@ jobs:
 
       - name: Install build dependencies
         run: bash scripts/install-deps.sh
+
+      # Fingerprint of the files that affect the build/package tree. Included in
+      # the toolchain cache key so edits to configs/feeds/scripts invalidate it
+      # (otherwise a cache HIT restores a stale tree and masks your changes).
+      - name: Compute cache fingerprint
+        id: fp
+        run: |
+          set -e
+          test -f "configs/$CONFIG_FILE" || { echo "ERROR: configs/$CONFIG_FILE missing"; ls -la; ls -la configs 2>/dev/null || true; exit 1; }
+          test -f feeds/pinned-6.12.conf || { echo "ERROR: feeds/pinned-6.12.conf missing"; exit 1; }
+          echo "CFG_HASH=$(sha256sum "configs/$CONFIG_FILE" feeds/pinned-6.12.conf scripts/install-deps.sh scripts/install-custom-pkgs.sh scripts/collect-artifacts.sh | cut -c1-64 | sha256sum | cut -c1-16)" >> "$GITHUB_ENV"
 
       - name: Clone LiBwrt source pinned to firmware commit
         run: |
@@ -82,8 +93,6 @@ jobs:
       - name: Apply config and pinned feeds
         run: |
           set -e
-          echo "workspace: $PWD"
-          test -f "configs/$CONFIG_FILE" || { echo "ERROR: configs/$CONFIG_FILE missing"; ls -la; ls -la configs 2>/dev/null || true; exit 1; }
           cp "configs/$CONFIG_FILE" "$OPENWRT_PATH/.config"
           cp feeds/pinned-6.12.conf "$OPENWRT_PATH/feeds.conf"
           if [ -n "$NSS_PACKAGES_SHA" ]; then
@@ -104,21 +113,24 @@ jobs:
           bash "$GITHUB_WORKSPACE/scripts/install-custom-pkgs.sh"
           ./scripts/feeds install -a
 
-      - name: Reload config and download sources
-        run: |
-          set -e
-          cd "$OPENWRT_PATH"
-          cp "$GITHUB_WORKSPACE/configs/$CONFIG_FILE" .config
-          make defconfig
-          make download -j8 || make download -j1 V=s
-          find dl -size -1024c -delete 2>/dev/null || true
-
+      # Cache restore replaces the whole openwrt/ tree (source+feeds+dl+toolchain),
+      # so config reload and downloads run AFTER it, on top of the restored tree.
       - name: Cache toolchain
         uses: HiGarfield/cachewrtbuild@main
         with:
           ccache: "false"
-          mixkey: libwrt-${{ inputs.source_sha }}-${{ inputs.config_flavor }}-aarch64_cortex-a53
+          mixkey: libwrt-${{ inputs.source_sha }}-${{ inputs.config_flavor }}-${{ env.CFG_HASH }}-aarch64_cortex-a53
           prefix: ${{ env.OPENWRT_PATH }}
+
+      - name: Reload config and download sources
+        run: |
+          set -e
+          cd "$OPENWRT_PATH"
+          test -f "$GITHUB_WORKSPACE/configs/$CONFIG_FILE" || { echo "ERROR: config missing"; exit 1; }
+          cp "$GITHUB_WORKSPACE/configs/$CONFIG_FILE" .config
+          make defconfig
+          make download -j8 || make download -j1 V=s
+          find dl -size -1024c -delete 2>/dev/null || true
 
       - name: Compile
         id: compile
