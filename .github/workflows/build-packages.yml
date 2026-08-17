@@ -48,6 +48,9 @@ jobs:
       EXTRA_FEEDS: ${{ inputs.extra_feeds }}
       NSS_PACKAGES_SHA: ${{ inputs.nss_packages_sha }}
     steps:
+      - name: Checkout this repo
+        uses: actions/checkout@v4
+
       - name: Install build dependencies
         run: bash scripts/install-deps.sh
 
@@ -57,9 +60,6 @@ jobs:
           swap-size-mb: 4096
           root-reserve-mb: 1024
           temp-reserve-mb: 100
-
-      - name: Checkout this repo
-        uses: actions/checkout@v4
 
       - name: Clone LiBwrt source pinned to firmware commit
         run: |
