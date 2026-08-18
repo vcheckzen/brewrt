@@ -65,4 +65,17 @@ fi
 
 echo "==> targets: $targets"
 echo "CPU cores: $(nproc)"
+
+# A bare `make package/<dir>/compile` does NOT build the host tools, the cross
+# toolchain or the kernel by itself - only the full `make` (world) target does.
+# Build them explicitly to mirror the original firmware build environment, so
+# userspace packages and kmod packages both work. Everything is cached by
+# HiGarfield/cachewrtbuild, so on re-runs these are fast no-ops.
+echo "==> [1/4] building host tools"
+make -j$(nproc) tools/install || { echo "==> tools failed, retrying -j1 V=s"; make -j1 tools/install V=s; }
+echo "==> [2/4] building cross toolchain"
+make -j$(nproc) toolchain/install || { echo "==> toolchain failed, retrying -j1 V=s"; make -j1 toolchain/install V=s; }
+echo "==> [3/4] compiling kernel target (needed for kmod packages)"
+make -j$(nproc) target/compile || { echo "==> target failed, retrying -j1 V=s"; make -j1 target/compile V=s; }
+echo "==> [4/4] compiling requested packages"
 make -j$(nproc) $targets V=s || make -j1 $targets V=s

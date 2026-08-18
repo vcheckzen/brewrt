@@ -32,7 +32,8 @@
    - `nss_packages_sha`：可选，见「注意事项」。
 4. 完成后在本次运行的 **Artifacts** 里下载 `apk-wifi` / `apk-nowifi`（编译出的所有 `.apk`）
    或 `firmware-wifi` / `firmware-nowifi`（整机固件镜像 + sha256sums + build.config 等）。
-5. 首次运行要先编译整套工具链，约 2~4 小时；工具链有缓存（`HiGarfield/cachewrtbuild`），第二次起会快很多。
+5. 首次运行要先编译主机工具 + 交叉工具链 + 内核，约 2~4 小时；这些都走缓存（`HiGarfield/cachewrtbuild`），第二次起会快很多。
+   `PACKAGES` 非空时，工作流会按原固件的编译顺序执行：`make tools/install` → `make toolchain/install` → `make target/compile`（内核，kmod 类包需要）→ `make package/<目录>/compile`，所以 kmod-ath11k 这类内核模块包也能编，且与固件内核同源码。
 
 ### 安装编译出的包到路由器
 
