@@ -66,6 +66,33 @@ fi
 echo "==> targets: $targets"
 echo "CPU cores: $(nproc)"
 
+# The firmware config only enables packages the firmware ships. A request like
+# "openssl-util" (a subpackage of package/libs/openssl) is NOT selected there,
+# so `make package/<dir>/compile` would silently skip it and produce no .apk.
+# Extract every package name the resolved Makefiles define (BuildPackage /
+# KernelPackage) and enable any that aren't explicitly set in .config, then
+# re-run defconfig so the metadata/builddirs pick them up.
+extra_cfg=""
+for t in $targets; do
+  d="${t#package/}"
+  d="${d%/compile}"
+  mk="package/$d/Makefile"
+  [ -f "$mk" ] || continue
+  for name in $(grep -oE '(BuildPackage,[[:alnum:]_-]+|KernelPackage/[[:alnum:]_-]+)' "$mk" | sed -E 's/.*[,/]//' | sort -u); do
+    if ! grep -qE "^(# )?CONFIG_PACKAGE_${name}(=| )" .config; then
+      extra_cfg="$extra_cfg CONFIG_PACKAGE_${name}=y"
+    fi
+  done
+done
+if [ -n "$extra_cfg" ]; then
+  echo "==> enabling in .config:$extra_cfg"
+  printf '%s\n' $extra_cfg >> .config
+  make defconfig
+  # defconfig drops unknown CONFIG_KERNEL_* lines; re-apply the kernel symbol
+  # injected by the workflow (nf_conntrack dscpremark ext, see workflow comment).
+  echo "CONFIG_KERNEL_NF_CONNTRACK_DSCPREMARK_EXT=y" >> .config
+fi
+
 # A bare `make package/<dir>/compile` does NOT build the host tools, the cross
 # toolchain or the kernel by itself - only the full `make` (world) target does.
 # Build them explicitly to mirror the original firmware build environment, so
