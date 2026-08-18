@@ -117,12 +117,12 @@ jobs:
           bash "$GITHUB_WORKSPACE/scripts/install-custom-pkgs.sh"
           ./scripts/feeds install -a
 
-      # Cache restore replaces the whole openwrt/ tree (source+feeds+dl+toolchain),
-      # so config reload and downloads run AFTER it, on top of the restored tree.
+      # Cache restore brings back staging_dir (host tools + cross toolchain) and
+      # ccache; config reload and downloads run AFTER it, on top of the restored tree.
       - name: Cache toolchain
         uses: HiGarfield/cachewrtbuild@main
         with:
-          ccache: "false"
+          ccache: "true"
           mixkey: libwrt-${{ inputs.source_sha }}-${{ inputs.config_flavor }}-${{ env.CFG_HASH }}-aarch64_cortex-a53
           prefix: ${{ env.OPENWRT_PATH }}
 

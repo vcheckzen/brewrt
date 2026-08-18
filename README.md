@@ -32,7 +32,7 @@
    - `nss_packages_sha`：可选，见「注意事项」。
 4. 完成后在本次运行的 **Artifacts** 里下载 `apk-wifi` / `apk-nowifi`（编译出的所有 `.apk`）。
    `firmware-wifi` / `firmware-nowifi`（整机固件镜像 + sha256sums + build.config 等）**只在 `packages` 留空时生成**；只编软件包时没有镜像产物，日志里 `No files were found` 属正常提示。
-5. 首次运行要先编译主机工具 + 交叉工具链 + 内核，约 2~4 小时；`HiGarfield/cachewrtbuild` 会把编译好的 `staging_dir`（主机工具 + 交叉工具链）缓存下来，第二次起命中缓存后直接复用，不再重编工具链；仅内核（`target/compile`，kmod 类包需要）仍会重编。
+5. 首次运行要先编译主机工具 + 交叉工具链 + 内核，约 2~4 小时；`HiGarfield/cachewrtbuild` 会把编译好的 `staging_dir`（主机工具 + 交叉工具链）和 `ccache` 一起缓存，第二次起命中缓存后直接复用，不再重编工具链；内核（`target/compile`，kmod 类包需要）每次仍会重编，但走 ccache，开启后第一次为冷缓存、之后明显加快。
    `PACKAGES` 非空时，工作流按原固件的编译顺序执行：`make tools/install` → `make toolchain/install` → `make target/compile` → `make package/<目录>/compile`（缓存命中时前两步跳过），所以 kmod-ath11k 这类内核模块包也能编，且与固件内核同源码。
 
 ### 安装编译出的包到路由器
@@ -95,6 +95,7 @@ apk list -I 2>/dev/null | grep -qi ath11k && echo WIFI || echo NOWIFI
   （OpenWrt 会把 `CONFIG_KERNEL_*` 映射进内核配置），否则内核 `syncconfig` 会在
   非交互环境询问该符号而失败。
 - 产物未签名：安装一律 `apk add --allow-untrusted xxx.apk`。
+- ccache 缓存上限为 2G（`CCACHE_MAXSIZE`）；GitHub 仓库缓存总上限 10GB，多次运行会累积时间戳命名的缓存条目，超限后 GitHub 自动按 LRU 驱逐旧缓存，属正常现象。
 - 如果某个包不在默认 feeds：用 `extra_feeds` 输入添加，
   或改 `configs/ipq60xx-6.12-wifi.config` / `nowifi` 里的包选择。
 - 只编译包时用的仍是整机 `.config`（与原固件一致，保证依赖版本相同）；若某包依赖了

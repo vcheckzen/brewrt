@@ -103,10 +103,16 @@ if [ -n "$extra_cfg" ]; then
   echo "==> enabling in .config:$extra_cfg"
   printf '%s\n' $extra_cfg >> .config
   make defconfig
-  # defconfig drops unknown CONFIG_KERNEL_* lines; re-apply the kernel symbol
-  # injected by the workflow (nf_conntrack dscpremark ext, see workflow comment).
-  echo "CONFIG_KERNEL_NF_CONNTRACK_DSCPREMARK_EXT=y" >> .config
 fi
+# Re-apply runtime-only config after any defconfig run, since defconfig drops
+# it: the ccache switch (our cached host tools were built without it; system
+# ccache is linked in below) and the kernel symbol injected by the workflow
+# (nf_conntrack dscpremark ext, see workflow comment).
+grep -q '^CONFIG_CCACHE=y' .config || echo 'CONFIG_CCACHE=y' >> .config
+grep -q '^CONFIG_KERNEL_NF_CONNTRACK_DSCPREMARK_EXT=y' .config || echo 'CONFIG_KERNEL_NF_CONNTRACK_DSCPREMARK_EXT=y' >> .config
+
+# Cap ccache size so the repository's GitHub cache quota is not exhausted.
+export CCACHE_MAXSIZE=2G
 
 # On cache hits HiGarfield/cachewrtbuild restores staging_dir/host* and
 # staging_dir/tool* (already-built host tools + cross toolchain) but NOT
@@ -115,6 +121,15 @@ fi
 # headers are already restored even fails, because binutils ends up including
 # musl's sys/types.h (no off64_t) and readelf.c stops compiling. If the cached
 # staging dirs are present, reuse them directly and skip those rebuilds.
+# Kernel + package builds invoke `ccache` from PATH (staging_dir/host/bin is
+# first). The cached staging_dir was built WITHOUT CONFIG_CCACHE and therefore
+# has no ccache binary; link the system one in. A full cold build replaces it
+# with OpenWrt's own patched ccache via tools/install, which is fine.
+if [ ! -x staging_dir/host/bin/ccache ] && command -v ccache >/dev/null 2>&1; then
+  echo "==> linking system ccache into staging_dir/host/bin"
+  mkdir -p staging_dir/host/bin
+  ln -sf "$(command -v ccache)" staging_dir/host/bin/ccache
+fi
 skip_host=0
 skip_toolchain=0
 [ -x staging_dir/host/bin/gcc ] && skip_host=1

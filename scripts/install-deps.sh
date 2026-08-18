@@ -65,7 +65,7 @@ if ! apt_run install-ncurses5 900 install "${APT_OPTS[@]}" libncurses5-dev; then
 fi
 
 apt_run install-main 900 install "${APT_OPTS[@]}" \
-  build-essential clang flex bison g++ gawk gettext git \
+  build-essential ccache clang flex bison g++ gawk gettext git \
   libssl-dev python3 python3-setuptools python3-pyelftools \
   rsync swig unzip zlib1g-dev file wget curl quilt xz-utils time \
   cpio bzip2 pkg-config libelf-dev nodejs gperf subversion
