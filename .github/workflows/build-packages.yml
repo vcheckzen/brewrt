@@ -129,6 +129,15 @@ jobs:
           test -f "$GITHUB_WORKSPACE/configs/$CONFIG_FILE" || { echo "ERROR: config missing"; exit 1; }
           cp "$GITHUB_WORKSPACE/configs/$CONFIG_FILE" .config
           make defconfig
+          # The LiBwrt kernel adds a Kconfig symbol NF_CONNTRACK_DSCPREMARK_EXT
+          # (qca-nss-ecm patch). Upstream supplies its value through the
+          # kmod-qca-nss-ecm KCONFIG line in the nss-packages feed, which is
+          # NOT reproducible (feed history was rewritten). OpenWrt maps any
+          # CONFIG_KERNEL_* line in .config into the kernel config
+          # (Kernel/Configure/Default), so inject the value here after the
+          # final defconfig. Without it, kernel syncconfig prompts interactively
+          # and fails on headless CI.
+          echo "CONFIG_KERNEL_NF_CONNTRACK_DSCPREMARK_EXT=y" >> .config
           make download -j8 || make download -j1 V=s
           find dl -size -1024c -delete 2>/dev/null || true
 

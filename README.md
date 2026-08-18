@@ -88,6 +88,12 @@ apk list -I 2>/dev/null | grep -qi ath11k && echo WIFI || echo NOWIFI
   单个提交（2025-11-04），**2025-01-25 的旧内容已无法恢复**，所以默认不加。
   它只影响 NSS 内核/驱动包；编译普通用户态软件不需要。如确需，在 `nss_packages_sha`
   填入唯一现存 commit `959e15c8fbc0...`（注意它是 2025-11 的内容，可能与旧源码不兼容）。
+- 内核编译有一个必要补丁：LiBwrt 的 qca-nss-ecm 内核补丁新增了无默认值的
+  `CONFIG_NF_CONNTRACK_DSCPREMARK_EXT`，原厂靠 nss feed 里 `kmod-qca-nss-ecm` 的
+  `KCONFIG` 注入。由于 nss feed 不可恢复，工作流在最后一次 `make defconfig` 后向
+  `.config` 注入 `CONFIG_KERNEL_NF_CONNTRACK_DSCPREMARK_EXT=y`
+  （OpenWrt 会把 `CONFIG_KERNEL_*` 映射进内核配置），否则内核 `syncconfig` 会在
+  非交互环境询问该符号而失败。
 - 产物未签名：安装一律 `apk add --allow-untrusted xxx.apk`。
 - 如果某个包不在默认 feeds：用 `extra_feeds` 输入添加，
   或改 `configs/ipq60xx-6.12-wifi.config` / `nowifi` 里的包选择。
