@@ -27,13 +27,13 @@
 3. 按需填输入项：
    - `source_sha`：源码 commit，默认就是你固件的 `9fd688c...`，一般不用改。
    - `config_flavor`：`wifi` 或 `nowifi`（不清楚就看下面「判断 WIFI/NOWIFI」）。
-   - `packages`：要编译的软件包，空格分隔。支持包名（`openssl-util`、`luci-app-passwall`），也支持源码路径（`package/libs/openssl`、`package/feeds/packages/aria2`）；包名会自动解析到对应源码目录，并自动启用进 `.config`（原固件 config 只勾选了固件自带的包，像 `openssl-util` 这种子包原本没被勾选，现在会被自动补上）。**留空 = 编译整机固件**。
+   - `packages`：要编译的软件包，空格分隔。支持包名（`openssl-util`、`luci-app-passwall`），也支持源码路径（`package/libs/openssl`、`package/feeds/packages/aria2`）；包名会自动解析到对应源码目录，并自动启用进 `.config`（原固件 config 只勾选了固件自带的包，像 `openssl-util` 这种子包原本没被勾选，现在会被自动补上）。填**裸包名**（如 `openssl-util`）只启用该包，依赖由配置系统自动带出；填**目录/路径**（如 `openssl`、`package/libs/openssl`）则启用该目录下所有子包。**留空 = 编译整机固件**。
    - `extra_feeds`：可选，向 `feeds.conf` 追加自定义 feed，每行一条 `src-git xxx https://...`。
    - `nss_packages_sha`：可选，见「注意事项」。
 4. 完成后在本次运行的 **Artifacts** 里下载 `apk-wifi` / `apk-nowifi`（编译出的所有 `.apk`）。
    `firmware-wifi` / `firmware-nowifi`（整机固件镜像 + sha256sums + build.config 等）**只在 `packages` 留空时生成**；只编软件包时没有镜像产物，日志里 `No files were found` 属正常提示。
-5. 首次运行要先编译主机工具 + 交叉工具链 + 内核，约 2~4 小时；这些都走缓存（`HiGarfield/cachewrtbuild`），第二次起会快很多。
-   `PACKAGES` 非空时，工作流会按原固件的编译顺序执行：`make tools/install` → `make toolchain/install` → `make target/compile`（内核，kmod 类包需要）→ `make package/<目录>/compile`，所以 kmod-ath11k 这类内核模块包也能编，且与固件内核同源码。
+5. 首次运行要先编译主机工具 + 交叉工具链 + 内核，约 2~4 小时；`HiGarfield/cachewrtbuild` 会把编译好的 `staging_dir`（主机工具 + 交叉工具链）缓存下来，第二次起命中缓存后直接复用，不再重编工具链；仅内核（`target/compile`，kmod 类包需要）仍会重编。
+   `PACKAGES` 非空时，工作流按原固件的编译顺序执行：`make tools/install` → `make toolchain/install` → `make target/compile` → `make package/<目录>/compile`（缓存命中时前两步跳过），所以 kmod-ath11k 这类内核模块包也能编，且与固件内核同源码。
 
 ### 安装编译出的包到路由器
 

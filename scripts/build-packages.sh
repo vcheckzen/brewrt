@@ -43,15 +43,17 @@ resolve_dir() {
 }
 
 targets=""
+reqs=""
 missing=""
 for p in $PACKAGES; do
-  d="$(resolve_dir "$p")"
+  d="$(resolve_dir "$p")" || true
   if [ -z "$d" ]; then
     missing="$missing $p"
     continue
   fi
   echo "==> $p -> package/$d"
   targets="$targets package/$d/compile"
+  reqs="$reqs $p|$d"
 done
 
 if [ -n "$missing" ]; then
@@ -69,17 +71,30 @@ echo "CPU cores: $(nproc)"
 # The firmware config only enables packages the firmware ships. A request like
 # "openssl-util" (a subpackage of package/libs/openssl) is NOT selected there,
 # so `make package/<dir>/compile` would silently skip it and produce no .apk.
-# Extract every package name the resolved Makefiles define (BuildPackage /
-# KernelPackage) and enable any that aren't explicitly set in .config, then
-# re-run defconfig so the metadata/builddirs pick them up.
+# Enable it explicitly in .config, then re-run defconfig so the package
+# metadata/builddirs pick it up.
+#   - bare package name (openssl-util): enable exactly that package; its
+#     DEPENDS entries are auto-selected by kconfig ('select') in defconfig.
+#   - bare directory name (openssl) or path (package/libs/openssl): enable
+#     every package the target Makefile defines (BuildPackage/KernelPackage).
 extra_cfg=""
-for t in $targets; do
-  d="${t#package/}"
-  d="${d%/compile}"
+for r in $reqs; do
+  p="${r%%|*}"
+  d="${r##*|}"
+  case "$p" in
+    */*) want_all=1 ;;
+    *)   want_all=0 ;;
+  esac
   mk="package/$d/Makefile"
   [ -f "$mk" ] || continue
-  for name in $(grep -oE '(BuildPackage,[[:alnum:]_-]+|KernelPackage/[[:alnum:]_-]+)' "$mk" | sed -E 's/.*[,/]//' | sort -u); do
-    if ! grep -qE "^(# )?CONFIG_PACKAGE_${name}(=| )" .config; then
+  names="$(grep -oE '(BuildPackage,[[:alnum:]_-]+|KernelPackage/[[:alnum:]_-]+)' "$mk" | sed -E 's/.*[,/]//' | sort -u)"
+  if [ "$want_all" = 1 ] || ! grep -qE "BuildPackage,${p}[,)]" "$mk"; then
+    sel="$names"
+  else
+    sel="$p"
+  fi
+  for name in $sel; do
+    if ! grep -qE "^CONFIG_PACKAGE_${name}=([ym])" .config; then
       extra_cfg="$extra_cfg CONFIG_PACKAGE_${name}=y"
     fi
   done
@@ -93,15 +108,32 @@ if [ -n "$extra_cfg" ]; then
   echo "CONFIG_KERNEL_NF_CONNTRACK_DSCPREMARK_EXT=y" >> .config
 fi
 
-# A bare `make package/<dir>/compile` does NOT build the host tools, the cross
-# toolchain or the kernel by itself - only the full `make` (world) target does.
-# Build them explicitly to mirror the original firmware build environment, so
-# userspace packages and kmod packages both work. Everything is cached by
-# HiGarfield/cachewrtbuild, so on re-runs these are fast no-ops.
-echo "==> [1/4] building host tools"
-make -j$(nproc) tools/install || { echo "==> tools failed, retrying -j1 V=s"; make -j1 tools/install V=s; }
-echo "==> [2/4] building cross toolchain"
-make -j$(nproc) toolchain/install || { echo "==> toolchain failed, retrying -j1 V=s"; make -j1 toolchain/install V=s; }
+# On cache hits HiGarfield/cachewrtbuild restores staging_dir/host* and
+# staging_dir/tool* (already-built host tools + cross toolchain) but NOT
+# build_dir. `make tools/install` / `make toolchain/install` would therefore
+# rebuild everything from scratch; rebuilding binutils after the cross musl
+# headers are already restored even fails, because binutils ends up including
+# musl's sys/types.h (no off64_t) and readelf.c stops compiling. If the cached
+# staging dirs are present, reuse them directly and skip those rebuilds.
+skip_host=0
+skip_toolchain=0
+[ -x staging_dir/host/bin/gcc ] && skip_host=1
+if [ -n "$(ls staging_dir/tool*/bin/*gcc 2>/dev/null | head -1)" ]; then
+  skip_toolchain=1
+fi
+
+if [ "$skip_host" = 1 ]; then
+  echo "==> [1/4] host tools: restored from cache, skipping tools/install"
+else
+  echo "==> [1/4] building host tools"
+  make -j$(nproc) tools/install || { echo "==> tools failed, retrying -j1 V=s"; make -j1 tools/install V=s; }
+fi
+if [ "$skip_toolchain" = 1 ]; then
+  echo "==> [2/4] cross toolchain: restored from cache, skipping toolchain/install"
+else
+  echo "==> [2/4] building cross toolchain"
+  make -j$(nproc) toolchain/install || { echo "==> toolchain failed, retrying -j1 V=s"; make -j1 toolchain/install V=s; }
+fi
 echo "==> [3/4] compiling kernel target (needed for kmod packages)"
 make -j$(nproc) target/compile || { echo "==> target failed, retrying -j1 V=s"; make -j1 target/compile V=s; }
 echo "==> [4/4] compiling requested packages"
